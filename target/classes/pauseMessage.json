@@ -1,0 +1,8 @@
+{
+  "version": "2",
+  "type": "pause",
+  "seq": 5,
+  "clientseq": 10,
+  "id": "abc123-uuid-session-id",
+  "parameters": { }
+}
