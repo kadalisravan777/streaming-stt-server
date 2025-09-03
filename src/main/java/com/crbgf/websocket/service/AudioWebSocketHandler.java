@@ -55,54 +55,120 @@ import com.rabbitmq.client.Connection;
 
 import jakarta.websocket.CloseReason;
 
+
+/**
+ * The Class AudioWebSocketHandler.
+ */
 @Component
 public class AudioWebSocketHandler implements WebSocketHandler {
 
+	/** The Constant log. */
 	private static final Logger log = LoggerFactory.getLogger(AudioWebSocketHandler.class);
 
+	/** The Constant CLIENT_SECRET. */
 	private static final String CLIENT_SECRET = "TXlTdXBlclNlY3JldEtleVRlbGxOby0xITJAMyM0JDU=";
+	
+	/** The Constant RABBITMQ_EXCHANGE_NAME. */
 	private static final String RABBITMQ_EXCHANGE_NAME = "audio_chunks";
+	
+	/** The supported languages. */
 	private final List<String> supportedLanguages = Arrays.asList("en-US", "en-GB", "ja-JP", "zh-CN", "zh-SG");
 
+	/** The session manager. */
 	// New class to manage the sessions and their metadata.
 	private final SessionManager sessionManager = new SessionManager();
 
+	/** The rabbit connection. */
 	private Connection rabbitConnection;
+	
+	/** The rabbit channel. */
 	private Channel rabbitChannel;
 
+	/** The opened msg from server. */
 	private OpenedMessage openedMsgFromServer;
+	
+	/** The open msg from client. */
 	private OpenMessage openMsgFromClient;
+	
+	/** The closed msg from server. */
 	private ClosedMessage closedMsgFromServer;
+	
+	/** The closed msg from client. */
 	private ClosedMessage closedMsgFromClient;
+	
+	/** The close msg from client. */
 	private CloseMessage closeMsgFromClient;
+	
+	/** The close msg from server. */
 	private CloseMessage closeMsgFromServer;
+	
+	/** The paused message from server. */
 	private PausedMessage pausedMessageFromServer;
+	
+	/** The paused message from client. */
 	private PausedMessage pausedMessageFromClient;
+	
+	/** The pause message from server. */
 	private PauseMessage pauseMessageFromServer;
+	
+	/** The pause message from client. */
 	private PauseMessage pauseMessageFromClient;
+	
+	/** The resumed message from server. */
 	private ResumedMessage resumedMessageFromServer;
+	
+	/** The resumed message from client. */
 	private ResumedMessage resumedMessageFromClient;
+	
+	/** The resume message from client. */
 	private ResumeMessage resumeMessageFromClient;
+	
+	/** The pong msg from server. */
 	private PongMessage pongMsgFromServer;
+	
+	/** The ping msg from client. */
 	private PingMessage pingMsgFromClient;
+	
+	/** The mapper. */
 	ObjectMapper mapper = new ObjectMapper();
+	
+	/** The update message from client. */
 	private UpdateMessage updateMessageFromClient;
 
+	/** The active agents. */
 	@Value("#{'${genesys.active.agents}'.split(',')}")
 	private List<String> activeAgents;
 	
 	
+	/** The meta data APIURI. */
 	@Value("${rabbit.metadata.api.url}")
 	private String metaDataAPIURI;
 	
+	/** The rest template. */
 	@Autowired
 	private RestTemplate restTemplate;
 
+	/**
+	 * Gets the header.
+	 *
+	 * @param headers the headers
+	 * @param name the name
+	 * @return the header
+	 */
 	private String getHeader(Map<String, List<String>> headers, String name) {
 		List<String> values = headers.getOrDefault(name, Collections.emptyList());
 		return values.isEmpty() ? null : values.get(0);
 	}
 
+	/**
+	 * Validate signature.
+	 *
+	 * @param headers the headers
+	 * @return true, if successful
+	 * @throws NoSuchAlgorithmException the no such algorithm exception
+	 * @throws InvalidKeyException the invalid key exception
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
 	private boolean validateSignature(Map<String, List<String>> headers)
 			throws NoSuchAlgorithmException, InvalidKeyException, IOException {
 
@@ -111,7 +177,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 		// Basic validation: Check for required headers
 		if (signatureInputHeader == null || signatureHeader == null) {
-			System.err.println("Validation failed: Signature-Input or Signature header missing.");
+			log.error("Validation failed: Signature-Input or Signature header missing.");
 			return false;
 		}
 
@@ -130,7 +196,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		String signatureParams = signatureInputHeader.split(";")[0];
 		signingString += "\n@signature-params: " + signatureParams;
 
-		System.out.println("Reconstructed Signing String:\n" + signingString); // For debugging purposes
+		log.info("Reconstructed Signing String:\n" + signingString); // For debugging purposes
 
 		// 3. Compute the HMAC-SHA256 signature
 		Mac hmacSha256 = Mac.getInstance("HmacSHA256");
@@ -148,6 +214,12 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 	}
 
+	/**
+	 * After connection established.
+	 *
+	 * @param session the session
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
 	@Override
 	public void afterConnectionEstablished(WebSocketSession session) throws IOException {
 		log.info("🔗 WebSocket connected: {}", session.getId());
@@ -157,21 +229,28 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		try {
 			boolean isSignatureValid = validateSignature(headers);
 			if (!isSignatureValid) {
-				System.out.println("Signature validation failed. Rejecting connection.");
+				log.info("Signature validation failed. Rejecting connection.");
 				session.close(new CloseStatus(CloseReason.CloseCodes.VIOLATED_POLICY.getCode(), "Invalid signature."));
 				return;
 			}
 
 		} catch (Exception e) {
-			System.err.println("Error during signature validation: " + e.getMessage());
+			log.error("Error during signature validation: " + e.getMessage());
 			session.close(
 					new CloseStatus(CloseReason.CloseCodes.UNEXPECTED_CONDITION.getCode(), "Internal server error."));
 			return;
 		}
 
-		System.out.println("Connection established and signature validated successfully.");
+		log.info("Connection established and signature validated successfully.");
  	}
 
+	/**
+	 * Handle message.
+	 *
+	 * @param session the session
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	@Override
 	public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) throws Exception {
 		if (message instanceof TextMessage) {
@@ -181,6 +260,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		}
 	}
 
+	/**
+	 * Handle text message.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	protected void handleTextMessage(WebSocketSession ws, TextMessage message) throws Exception {
 
 		JSONObject response = new JSONObject(message.getPayload().toString());
@@ -199,6 +285,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		}
 	}
 
+	/**
+	 * Handle resumed.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handleResumed(WebSocketSession ws, TextMessage message) throws Exception {
 		log.info("Resumed Event received for sessionId={}", ws.getAttributes().get("sessionId"));
 
@@ -208,6 +301,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		log.info("Closed JSON: " + jsonString);
 	}
 
+	/**
+	 * Handle closed.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handleClosed(WebSocketSession ws, TextMessage message) throws Exception {
 		log.info("Closed Event received for sessionId={}", ws.getAttributes().get("sessionId"));
 
@@ -217,6 +317,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		log.info("Closed JSON: " + jsonString);
 	}
 
+	/**
+	 * Handle paused.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handlePaused(WebSocketSession ws, TextMessage message) throws Exception {
 		log.info("⏸️ Paused Event received for sessionId={}", ws.getAttributes().get("sessionId"));
 
@@ -227,6 +334,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 	}
 
+	/**
+	 * Handle update.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handleUpdate(WebSocketSession ws, TextMessage message) throws Exception {
 		updateMessageFromClient = mapper.readValue(message.getPayload(), UpdateMessage.class);
 		log.info("Update for sessionId={}", ws.getAttributes().get("sessionId"));
@@ -263,6 +377,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 	}
 
+	/**
+	 * Handle ping.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handlePing(WebSocketSession ws, TextMessage message) throws Exception {
 
 		pingMsgFromClient = mapper.readValue(message.getPayload(), PingMessage.class);
@@ -279,7 +400,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 			String jsonString = mapper.writeValueAsString(pongMsgFromServer);
 
-			System.out.println("Sending Pong JSON: " + jsonString);
+			log.info("Sending Pong JSON: " + jsonString);
 
 			ws.sendMessage(new TextMessage(jsonString));
 		} catch (Exception e) {
@@ -287,6 +408,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		}
 	}
 
+	/**
+	 * Handle pause.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handlePause(WebSocketSession ws, TextMessage message) throws Exception {
 		log.info("⏸️ Pause requested for sessionId={}", ws.getAttributes().get("sessionId"));
 
@@ -302,7 +430,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 			pausedMessageFromServer.setType("paused");
 
 			String jsonString = mapper.writeValueAsString(pausedMessageFromServer);
-			System.out.println("Sending Paused JSON: " + jsonString);
+			log.info("Sending Paused JSON: " + jsonString);
 
 			ws.sendMessage(new TextMessage(jsonString));
 		} catch (Exception e) {
@@ -310,6 +438,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		}
 	}
 
+	/**
+	 * Handle resume.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handleResume(WebSocketSession ws, TextMessage message) throws Exception {
 		log.info("Resume requested for sessionId={}", ws.getAttributes().get("sessionId"));
 		resumeMessageFromClient = mapper.readValue(message.getPayload(), ResumeMessage.class);
@@ -324,7 +459,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 			resumedMessageFromServer.setType("resumed");
 
 			String jsonString = mapper.writeValueAsString(resumedMessageFromServer);
-			System.out.println("Sending Resumed JSON: " + jsonString);
+			log.info("Sending Resumed JSON: " + jsonString);
 
 			ws.sendMessage(new TextMessage(jsonString));
 		} catch (Exception e) {
@@ -332,11 +467,18 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		}
 	}
 
+	/**
+	 * Handle open.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handleOpen(WebSocketSession ws, TextMessage message) throws Exception {
 
 		try {
 			openMsgFromClient = mapper.readValue(message.getPayload(), OpenMessage.class);
-			System.out.println(openMsgFromClient.toString());
+			log.info(openMsgFromClient.toString());
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -362,17 +504,26 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 	}
 
-	/******************************************
+	/**
+	 * ****************************************
 	 * This method is used to fetch the agentId
-	 * from the genesis API based on the participant id
-	 * @param participantId
-	 * @return
-	 ******************************************/
+	 * from the genesis API based on the participant id.
+	 *
+	 * @param participantId the participant id
+	 * @return ****************************************
+	 */
 	private String fetchAgentDetails(String participantId) {
 		//restTemplate.exchange(null, null, null, null);
 		return null;
 	}
 
+	/**
+	 * Prepare opened message.
+	 *
+	 * @param sessionId the session id
+	 * @return the string
+	 * @throws JsonProcessingException the json processing exception
+	 */
 	private String prepareOpenedMessage(String sessionId) throws JsonProcessingException {
 		OpenedParameters opendParameter = new OpenedParameters();
 		openedMsgFromServer = new OpenedMessage();
@@ -397,10 +548,17 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		}
 
 		String jsonString = mapper.writeValueAsString(openedMsgFromServer);
-		System.out.println("Sending Opened JSON: " + jsonString);
+		log.info("Sending Opened JSON: " + jsonString);
 		return jsonString;
 	}
 
+	/**
+	 * Handle close.
+	 *
+	 * @param ws the ws
+	 * @param message the message
+	 * @throws Exception the exception
+	 */
 	private void handleClose(WebSocketSession ws, TextMessage message) throws Exception {
 		log.info("📴 Received 'close' event for session: {}", ws.getId());
 
@@ -421,6 +579,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		stopSession(ws);
 	}
 
+	/**
+	 * Handle binary message.
+	 *
+	 * @param session the session
+	 * @param message the message
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
 	private void handleBinaryMessage(WebSocketSession session, BinaryMessage message) throws IOException {
 
 		SessionMetadata metadata = sessionManager.getMetadata(session.getId());
@@ -445,17 +610,19 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 		rabbitChannel.basicPublish(RABBITMQ_EXCHANGE_NAME, routingKey, null,
 				audioMessage.toString().getBytes(StandardCharsets.UTF_8));
-		System.out.println("Published " + audio.length + " bytes to RabbitMQ with routing key: " + routingKey);
+		log.info("Published " + audio.length + " bytes to RabbitMQ with routing key: " + routingKey);
 
 	}
 
-	/**************************************************
+	/**
+	 * ************************************************
 	 * This method will be used to pass on the agent
 	 * id, exchange details, participent id to internal 
-	 * API
-	 * @param participantId
-	 * @param agentId 
-	 **************************************************/
+	 * API.
+	 *
+	 * @param participantId the participant id
+	 * @param agentId ************************************************
+	 */
 	private void publishRMQDetailsTOAPI(String participantId, String agentId) {
 		try {
 			HttpHeaders headers = new HttpHeaders();
@@ -467,29 +634,57 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		
 	}
 
+	/**
+	 * Handle transport error.
+	 *
+	 * @param session the session
+	 * @param exception the exception
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
 	@Override
 	public void handleTransportError(WebSocketSession session, Throwable exception) throws IOException {
 		log.error("❌ Transport error on session {}: {}", session.getId(), exception.getMessage(), exception);
 		stopSession(session);
 	}
 
+	/**
+	 * After connection closed.
+	 *
+	 * @param session the session
+	 * @param closeStatus the close status
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
 	@Override
 	public void afterConnectionClosed(WebSocketSession session, CloseStatus closeStatus) throws IOException {
 		log.info("🔌 WebSocket closed: {}, reason={}", session.getId(), closeStatus.getReason());
 		stopSession(session);
 	}
 
+	/**
+	 * Supports partial messages.
+	 *
+	 * @return true, if successful
+	 */
 	@Override
 	public boolean supportsPartialMessages() {
 		return false;
 	}
 
+	/**
+	 * Stop session.
+	 *
+	 * @param session the session
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
 	private void stopSession(WebSocketSession session) throws IOException {
 		log.info("🛑 Transcription session stopped for WebSocket {}", session.getId());
 		sessionManager.removeSessionMetadata(session.getId());
 		session.close(new CloseStatus(CloseReason.CloseCodes.NORMAL_CLOSURE.getCode(), "Closing session"));
 	}
 
+	/**
+	 * Shutdown.
+	 */
 	@PreDestroy
 	public void shutdown() {
 		log.info("🔻 Shutting down all active WebSocket transcription sessions...");
