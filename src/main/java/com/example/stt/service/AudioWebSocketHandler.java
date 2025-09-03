@@ -58,7 +58,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 	private static final Logger log = LoggerFactory.getLogger(AudioWebSocketHandler.class);
 
 	private static final String CLIENT_SECRET = "TXlTdXBlclNlY3JldEtleVRlbGxOby0xITJAMyM0JDU=";
-	private static final String RABBITMQ_EXCHANGE_NAME = "audio_exchange";
+	private static final String RABBITMQ_EXCHANGE_NAME = "audio_chunks";
 	private final List<String> supportedLanguages = Arrays.asList("en-US", "en-GB", "ja-JP", "zh-CN", "zh-SG");
 
 	// New class to manage the sessions and their metadata.
@@ -164,40 +164,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		}
 
 		System.out.println("Connection established and signature validated successfully.");
-
-//		 try {
-//			connectToMQ(session, headers);
-//		} catch (KeyManagementException | NoSuchAlgorithmException | IOException | URISyntaxException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
-
-	}
-
-//	private void connectToMQ(WebSocketSession session, Map<String, List<String>> headers)
-//			throws IOException, KeyManagementException, NoSuchAlgorithmException, URISyntaxException {
-//		try {
-//			ConnectionFactory factory = new ConnectionFactory();
-//			factory.setHost("172.16.32.202");
-//			factory.setUsername("mquser");
-//			factory.setPassword("rabbitmq");
-//			factory.setUri("");
-//
-//			this.rabbitConnection = factory.newConnection();
-//			this.rabbitChannel = rabbitConnection.createChannel();
-//
-//			this.rabbitChannel.exchangeDeclare(RABBITMQ_EXCHANGE_NAME, "direct", true);
-//
-//			String sessionId = headers.get("Audiohook-Session-Id").get(0);
-//			session.getAttributes().put("sessionId", sessionId);
-//
-//			System.out.println("RabbitMQ connection and channel established.");
-//		} catch (IOException | TimeoutException e) {
-//			System.err.println("Error connecting to RabbitMQ: " + e.getMessage());
-//			session.close(new CloseStatus(CloseReason.CloseCodes.UNEXPECTED_CONDITION.getCode(),
-//					"RabbitMQ connection error."));
-//		}
-//	}
+ 	}
 
 	@Override
 	public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) throws Exception {
@@ -389,8 +356,14 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 	}
 
+	/******************************************
+	 * This method is used to fetch the agentId
+	 * from the genesis API based on the participant id
+	 * @param participantId
+	 * @return
+	 ******************************************/
 	private String fetchAgentDetails(String participantId) {
-//		restTemplate.exchange(null, null, null, null);
+		//restTemplate.exchange(null, null, null, null);
 		return null;
 	}
 
@@ -436,7 +409,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 		String jsonString = mapper.writeValueAsString(closedMsgFromServer);
 
-		System.out.println("Sending Closed JSON: " + jsonString);
+		log.info("Sending Closed JSON: {}", jsonString);
 
 		ws.sendMessage(new TextMessage(jsonString));
 		stopSession(ws);
@@ -462,9 +435,9 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 		String routingKey = metadata.getConversationId() + "." + metadata.getParticipantId();
 
-//		rabbitChannel.basicPublish(RABBITMQ_EXCHANGE_NAME, routingKey, null,
-//				audioMessage.toString().getBytes(StandardCharsets.UTF_8));
-//		System.out.println("Published " + audio.length + " bytes to RabbitMQ with routing key: " + routingKey);
+		rabbitChannel.basicPublish(RABBITMQ_EXCHANGE_NAME, routingKey, null,
+				audioMessage.toString().getBytes(StandardCharsets.UTF_8));
+		System.out.println("Published " + audio.length + " bytes to RabbitMQ with routing key: " + routingKey);
 
 	}
 

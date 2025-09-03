@@ -4,18 +4,16 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
-import com.google.api.client.util.Value;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
@@ -42,7 +40,7 @@ public class RMQConfig {
 	private Channel rabbitChannel;
 
 	@Bean
-	public Channel connectToMQ(Map<String, List<String>> headers)
+	public Channel connectToMQ(Connection rabbitConnection)
 			throws IOException, KeyManagementException, NoSuchAlgorithmException, URISyntaxException {
 		try {
 			this.rabbitChannel = rabbitConnection.createChannel();
@@ -62,10 +60,10 @@ public class RMQConfig {
 			ConnectionFactory factory = new ConnectionFactory();
 			factory.setUsername(username);
 			factory.setPassword(password);
-			factory.setUri(hostName);
-			this.rabbitConnection = factory.newConnection();
-		} catch (IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException
-				| TimeoutException e) {
+			factory.setHost(hostName);
+			factory.setPort(5672);
+			rabbitConnection = factory.newConnection();
+		} catch (IOException | TimeoutException e) {
 			log.error("Exception occured while creating rabbitConnection");
 			e.printStackTrace();
 		}
