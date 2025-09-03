@@ -1,10 +1,8 @@
 package com.example.stt.service;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
-import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,7 +20,9 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -32,7 +32,6 @@ import org.springframework.web.socket.WebSocketSession;
 
 import com.example.stt.config.SessionManager;
 import com.example.stt.config.SessionMetadata;
-import com.example.stt.dto.ActiveAgentCache;
 import com.example.stt.dto.CloseMessage;
 import com.example.stt.dto.ClosedMessage;
 import com.example.stt.dto.MediaParameter;
@@ -47,11 +46,9 @@ import com.example.stt.dto.ResumeMessage;
 import com.example.stt.dto.ResumedMessage;
 import com.example.stt.dto.UpdateMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.ConnectionFactory;
 
 import jakarta.websocket.CloseReason;
 
@@ -88,9 +85,12 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 	private PingMessage pingMsgFromClient;
 	ObjectMapper mapper = new ObjectMapper();
 	private UpdateMessage updateMessageFromClient;
+
+	@Value("#{'${genesys.active.agents}'.split(',')}")
+	private List<String> activeAgents;
 	
 	@Autowired
-    private ActiveAgentCache agentCache;
+	private RestTemplate restTemplate;
 
 	private String getHeader(Map<String, List<String>> headers, String name) {
 		List<String> values = headers.getOrDefault(name, Collections.emptyList());
@@ -155,12 +155,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 				session.close(new CloseStatus(CloseReason.CloseCodes.VIOLATED_POLICY.getCode(), "Invalid signature."));
 				return;
 			}
-			log.info("Active Agent List:"+agentCache.toString());
-			if (!agentCache.isActive(getHeader(headers, "participantId"))) {
-			    session.close(new CloseStatus(CloseReason.CloseCodes.VIOLATED_POLICY.getCode(), "Agent not active"));
-			    return;
-			}
-			log.info("Participant Id Verified"+getHeader(headers, "participantId"));
+
 		} catch (Exception e) {
 			System.err.println("Error during signature validation: " + e.getMessage());
 			session.close(
@@ -376,7 +371,15 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		String conversationId = openMsgFromClient.getParameters().getConversationId();
 		String participantId = openMsgFromClient.getParameters().getParticipant().getId();
 		log.info("📡 Received 'open' event for sessionId={}, participantId={}", sessionId, participantId);
-
+		log.info("Active Agent List:" + activeAgents.toString());
+		
+		String agentId = fetchAgentDetails(participantId);
+		if (!activeAgents.contains(agentId)) {
+			ws.close(new CloseStatus(CloseReason.CloseCodes.VIOLATED_POLICY.getCode(), "Agent not active"));
+			return;
+		}
+		log.info("Participant Id Verified" + participantId);
+		
 		// ⭐ Core change: Store the conversation and participant IDs for this session
 		sessionManager.storeSessionMetadata(ws.getId(), conversationId, participantId);
 
@@ -384,6 +387,11 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
 		ws.sendMessage(new TextMessage(jsonString));
 
+	}
+
+	private String fetchAgentDetails(String participantId) {
+//		restTemplate.exchange(null, null, null, null);
+		return null;
 	}
 
 	private String prepareOpenedMessage(String sessionId) throws JsonProcessingException {
