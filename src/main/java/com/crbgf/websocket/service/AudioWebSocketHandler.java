@@ -23,7 +23,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
@@ -49,6 +53,7 @@ import com.crbgf.websocket.beans.UpdateMessage;
 import com.crbgf.websocket.config.SessionManager;
 import com.crbgf.websocket.config.SessionMetadata;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -147,6 +152,17 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 	/** The rest template. */
 	@Autowired
 	private RestTemplate restTemplate;
+
+	@Autowired
+	private TokenService tokenService;
+	
+	@Value("${genesys.api.base-url}")
+	private String baseUrl;
+
+	@Value("${genesys.api.participant-url-template}")
+	private String participantUrlTemplate;
+
+
 
 	/**
 	 * Gets the header.
@@ -488,7 +504,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 		log.info("📡 Received 'open' event for sessionId={}, participantId={}", sessionId, participantId);
 		log.info("Active Agent List:" + activeAgents.toString());
 		
-		String agentId = fetchAgentDetails(participantId);
+		String agentId = fetchAgentDetails(conversationId,participantId);
 		if (!activeAgents.contains(agentId)) {
 			ws.close(new CloseStatus(CloseReason.CloseCodes.VIOLATED_POLICY.getCode(), "Agent not active"));
 			return;
@@ -505,17 +521,54 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 	}
 
 	/**
-	 * ****************************************
-	 * This method is used to fetch the agentId
-	 * from the genesis API based on the participant id.
+	 * **************************************** This method is used to fetch the
+	 * agentId from the genesis API based on the participant id.
 	 *
-	 * @param participantId the participant id
+	 * @param conversationId the conversation id
+	 * @param participantId  the participant id
 	 * @return ****************************************
 	 */
-	private String fetchAgentDetails(String participantId) {
-		//restTemplate.exchange(null, null, null, null);
-		return null;
+	public String fetchAgentDetails(String conversationId, String participantId) {
+	    String path = participantUrlTemplate
+	        .replace("{conversationId}", conversationId)
+	        .replace("{participantId}", participantId);
+
+	    String url = baseUrl + path;
+	    return callParticipantApi(url, false);
 	}
+
+	private String callParticipantApi(String url, boolean retrying) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(tokenService.getAccessToken());
+		headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+		HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+		ResponseEntity<String> response = null;
+		try {
+			response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+		} catch (HttpClientErrorException.Unauthorized ex) {
+			if (!retrying) {
+				System.out.println("Token expired. Fetching new token...");
+				tokenService.refreshToken();
+				return callParticipantApi(url, true); // retry once
+			} else {
+				throw new RuntimeException("Retried but still unauthorized.");
+			}
+		}
+		ObjectMapper objectMapper = new ObjectMapper();
+		if (response.getStatusCode().is2xxSuccessful()) {
+			try {
+				JsonNode json = objectMapper.readTree(response.getBody());
+				return json.path("userId").asText(); // 🎯 agentId
+			} catch (Exception e) {
+				throw new RuntimeException("Failed to parse JSON", e);
+			}
+		} else {
+			throw new RuntimeException("API Error: " + response.getStatusCode());
+		}
+	}
+
 
 	/**
 	 * Prepare opened message.
